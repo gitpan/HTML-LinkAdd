@@ -1,13 +1,9 @@
-#! perl -w
-
 package HTML::LinkAdd;
-our $VERSION = 0.1;
+our $VERSION = 0.12;	# Removed more extrenious code form HTML::Analysis
 
 use strict;
+use warnings;
 use HTML::TokeParser;
-use Data::Dumper;
-
-=pod
 
 =head1 NAME
 
@@ -18,103 +14,50 @@ HTML::LinkAdd - add hyperlinks to phrases in HTML documents
 A simple object that accepts a class reference, a path to a file, and a hash of text-phrase/link-URLs,
 and supplies a method to hyperlink the supplied phrases to the supplied URLs, and a method to save the file.
 
-=head1 PRIVATE CLASS CONSTANTS
+=head1 DEPENDENCIES
 
-=item debug
-
-Set to true if you are ....
-
-=cut
-
-our $debug = 1;
+	strict
+	warning
+	HTML::TokeParser
 
 =head1 CONSTRUCTOR (new)
 
-Accepts class reference, returns HTML::Analyse::Docuemnt object, with the following slots:
+Accepts class reference, some HTML, and a hash of phrases and hyperlinks.
+The HTML may be a filename passed as a scalar, or a reference to a scalar thast is literal HTML.
 
-=item PUBLIC words
-
-Hash where keys are words encountered, values are number of instances encountered by this object to date, with the added weight (see below).
-
-=item PRIVATE context_w
-
-Context weight for the word being processed, +/- any changes made in processing.
-
-=item PRIVATE INPUT
-
-A string of HTML input.
+Returns a scalar that is the updated HTML input.
 
 =item PUBLIC output
 
 A string of HTML output.
 
-=cut
+=item PRIVATE INPUT
 
-sub new { my ($class,$filename) = (shift,shift);
-	# Test parameters are valid
-	warn "HTML::LinkAdd::new requires both class and filename as paramters"
-		and return undef if not defined $filename;
-	warn "HTML::LinkAdd::new  requires both class and filename as paramters"
-		and return undef  if not defined $class or not defined $filename;
-	warn "HTML::LinkAdd::new unable to find file <$filename> for input!"
-		and return if !-e $filename;
-
-	# Define object
-	my $self 			= {};
-	bless $self,$class;
-
-	$self->{words} 		= {};
-	$self->{context_w} 	= 1;	# Weight factor gained from current context
-	$self->{INPUT} 		= [];	# A tokenised (TokeParser generated) copy of the HTML input
-
-	# Load HTML here (not in TokeParser) so we can keep a copy.
-	open IN, $filename or warn "HTML::LinkAdd::new  requires both class and filename as paramters" and return undef;
-		@_ = <IN>;
-	close IN;
-	$self->{INPUT} = join '',@_;		# Copy the HTML document to self for possible later use
-
-	return $self;
-}
-
-
-=head2 PUBLIC METHOD dump
-
-Dumps the contents of $self
+A string of HTML input.
 
 =cut
 
-sub dump { my $self = shift;
-	# simple procedural interface
-	print Dumper($self);
-}
+sub new { my ($class,$input) = (shift,shift);
+	# Lets HTML::TokeParser handle the input file/string checks:-
+	warn "HTML::LinkAdd::new called without a class ref?" and return undef unless defined $class;
+	warn "Useage: new $class (\$path_to_file or \\\$HTML)" and return undef if not defined $input;
 
-
-
-=head1 PUBLIC METHOD hyperlink
-
-Modify HTML by adding hyperlinks around specified words.
-
-Text to hyperlink should passed as keys of a hash, with
-relative values being the URLs the links should point to.
-
-Sets the C<output> slot and returns its contents.
-
-=cut
-
-sub hyperlink { my $self = shift;
 	my %args;
-	# Take parameters and place in object slot HREFS as text/URL pairs
+	my $self = {};
+	$self->{INPUT} = $input; 	# Oh, someone may find it useful
+	# Take parameters and place in object slots/set as instance variables
 	if (ref $_[0] eq 'HASH'){	%args = %{$_[0]} }
 	elsif (not ref $_[0]){		%args = @_ }
+	# Take parameters and place in object slot HREFS as text/URL pairs
+	warn "$class\;;new requires a hash (or ref to such) as parameter." and return undef if length %args<2;
 	%{$self->{HREFS}} = %args;
-	warn "HTML::LinkAdd::hyperilnk requires a hash (or ref to such) as parameter." and return undef if length %args<2;
-
 	# Clear the output slot
 	$self->{output} = '';
+	bless $self,$class;
 
 	# Create new TokeParser and parse all text, comparing HTML against keys of our targets
-	my $p = new HTML::TokeParser ( \$self->{INPUT} )
-		or warn "Counldn't make TokeParser!" and return undef;
+	my $p = new HTML::TokeParser ( $self->{INPUT} )
+		or warn "Counldn't instantiate HTML::TokeParser!\n$!" and return undef;
 	my $token;
 
 	while ($token = $p->get_token and not (@$token[1] eq 'html' and @$token[0] eq 'E') ){
@@ -135,20 +78,29 @@ sub hyperlink { my $self = shift;
 		else                      { $literal = @$token[1]; }
 		$self->{output} .= $literal;
 	} # End while
-	return $self->{output};
+	return $self;
 }
+
+
+=head1 PUBLIC METHOD hyperlink
+
+Returns the hyperlinked HTML docuemnt constructed by...the constructor.
+
+=cut
+
+sub hyperlinked { return $_[0]->{output} }
 
 
 =head1 PUBLIC METHOD save
 
 Saves the object's C<output> slot to filename passed as scalar.
 
-Returns undef on failure.
+Returns undef on failure, C<1> on success.
 
 =cut
 
 sub save { my ($self,$filename) = (shift,shift);
-	warn "HTML::LinkAdd::save requires a filename as parameter 1" and return undef if not defined $filename;
+	warn "HTML::LinkAdd::save requires a filename as parameter 1" and return undef unless defined $filename;
 	local *OUT;
 	open OUT, ">$filename"
 		or warn "HTML::LinkAdd::save could not open the file <$filename> for writing.\n$!" and return undef;
@@ -160,16 +112,26 @@ sub save { my ($self,$filename) = (shift,shift);
 1;	# Return cleanly
 
 
-
-
 __END__;
 
 =head1 SYNOPSIS
 
 	use HTML::LinkAdd;
-	my $instance = new HTML::LinkAdd('input.html');
-	$instance->hyperlink('the clocks were striking thirteen'=>'footnotes.html#OrwellG-1');
-	$instance ->save ('output.html');
+	my $page = new HTML::LinkAdd('testinput1.html',
+		{'the clocks were striking thirteen'=>'footnotes.html#OrwellG-1'}
+	);
+	warn $page -> hyperlinked;
+	$page ->save ('output.html');
+
+=head1 CAVEATS
+
+Is only as limited as HTML::TokeParse (see L<HTML::TokeParse>).
+
+=head1 TODO
+
+=item *
+
+Add support for linking images by source or C<ID>.
 
 =head1 AUTHOR
 
